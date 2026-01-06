@@ -1,0 +1,144 @@
+import streamlit as st
+import json
+from jinja2 import Environment, FileSystemLoader
+from utils.ats import extract_keywords, merge_keywords
+from utils.llm import generate_text
+from utils.generate_docx import render_docx
+from utils.generate_pdf import render_pdf
+from utils.portfolio import make_portfolio_zip
+ 
+# Configure Streamlit page
+st.set_page_config(page_title="AI Resume & Portfolio Builder", layout="wide")
+ 
+st.title("📄 AI Resume & Portfolio Builder")
+st.write("Generate tailored, ATS-aware resumes, cover letters, and portfolios from student profile JSON.")
+ 
+# Sidebar options
+st.sidebar.header("Options")
+template_choice = st.sidebar.selectbox("Choose Template", ["modern", "classic", "professional"])
+export_format = st.sidebar.selectbox("Export Format", ["PDF", "DOCX", "BOTH"])
+ 
+# Input JSON
+profile_json = st.text_area("Paste Student Profile JSON", height=300)
+ 
+if st.button("Generate"):
+    try:
+        profile = json.loads(profile_json)
+    except json.JSONDecodeError:
+        st.error("❌ Invalid JSON format. Please check your input.")
+        st.stop()
+ 
+    jd = profile.get("targets", {}).get("job_description", "")
+    ats_keywords = extract_keywords(jd)
+    profile = merge_keywords(profile, ats_keywords)
+ 
+    # Generate text
+    summary = generate_text("summary", profile)
+    bullets = []
+    for exp in profile.get("experience", []):
+        bullets.append(generate_text("bullets", {**profile, "experience_item": exp, "ats_keywords": ats_keywords}))
+    cover_letter = generate_text("cover_letter", profile)
+ 
+    # Render resume HTML
+    env = Environment(loader=FileSystemLoader("templates"))
+    tmpl = env.get_template(f"resume_{template_choice}.html")
+    exp_with_bullets = list(zip(profile.get("experience", []), bullets))
+ 
+    resume_html = tmpl.render(profile=profile, summary=summary, exp_with_bullets=exp_with_bullets)
+ 
+    # Display results
+    st.subheader("Resume Preview")
+    st.components.v1.html(resume_html, height=600, scrolling=True)
+ 
+    st.subheader("Cover Letter")
+    st.text_area("Generated Cover Letter", cover_letter, height=200)
+ 
+    # Export files
+    files = []
+    if export_format in ["DOCX", "BOTH"]:
+        files.append(render_docx(resume_html))
+    if export_format in ["PDF", "BOTH"]:
+        files.append(render_pdf(resume_html))
+    files.append(make_portfolio_zip(profile, resume_html, cover_letter))
+ 
+    st.subheader("Downloads")
+    for f in files:
+        with open(f, "rb") as file_data:
+            btn = st.download_button(
+                label=f"Download {f.split('.')[-1].upper()}",
+                data=file_data,
+                file_name=f
+            )
+ 
+import streamlit as st
+import json
+from jinja2 import Environment, FileSystemLoader
+from utils.ats import extract_keywords, merge_keywords
+from utils.llm import generate_text
+from utils.generate_docx import render_docx
+from utils.generate_pdf import render_pdf
+from utils.portfolio import make_portfolio_zip
+ 
+# Configure Streamlit page
+st.set_page_config(page_title="AI Resume & Portfolio Builder", layout="wide")
+ 
+st.title("📄 AI Resume & Portfolio Builder")
+st.write("Generate tailored, ATS-aware resumes, cover letters, and portfolios from student profile JSON.")
+ 
+# Sidebar options
+st.sidebar.header("Options")
+template_choice = st.sidebar.selectbox("Choose Template", ["modern", "classic", "professional"])
+export_format = st.sidebar.selectbox("Export Format", ["PDF", "DOCX", "BOTH"])
+ 
+# Input JSON
+profile_json = st.text_area("Paste Student Profile JSON", height=300)
+ 
+if st.button("Generate"):
+    try:
+        profile = json.loads(profile_json)
+    except json.JSONDecodeError:
+        st.error("❌ Invalid JSON format. Please check your input.")
+        st.stop()
+ 
+    jd = profile.get("targets", {}).get("job_description", "")
+    ats_keywords = extract_keywords(jd)
+    profile = merge_keywords(profile, ats_keywords)
+ 
+    # Generate text
+    summary = generate_text("summary", profile)
+    bullets = []
+    for exp in profile.get("experience", []):
+        bullets.append(generate_text("bullets", {**profile, "experience_item": exp, "ats_keywords": ats_keywords}))
+    cover_letter = generate_text("cover_letter", profile)
+ 
+    # Render resume HTML
+    env = Environment(loader=FileSystemLoader("templates"))
+    tmpl = env.get_template(f"resume_{template_choice}.html")
+    exp_with_bullets = list(zip(profile.get("experience", []), bullets))
+ 
+    resume_html = tmpl.render(profile=profile, summary=summary, exp_with_bullets=exp_with_bullets)
+ 
+    # Display results
+    st.subheader("Resume Preview")
+    st.components.v1.html(resume_html, height=600, scrolling=True)
+ 
+    st.subheader("Cover Letter")
+    st.text_area("Generated Cover Letter", cover_letter, height=200)
+ 
+    # Export files
+    files = []
+    if export_format in ["DOCX", "BOTH"]:
+        files.append(render_docx(resume_html))
+    if export_format in ["PDF", "BOTH"]:
+        files.append(render_pdf(resume_html))
+    files.append(make_portfolio_zip(profile, resume_html, cover_letter))
+ 
+    st.subheader("Downloads")
+    for f in files:
+        with open(f, "rb") as file_data:
+            btn = st.download_button(
+                label=f"Download {f.split('.')[-1].upper()}",
+                data=file_data,
+                file_name=f
+            )
+ 

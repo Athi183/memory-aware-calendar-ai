@@ -1,0 +1,38 @@
+{
+    "events": [
+        {
+            "title": "sdjij",
+            "description": "dkefk",
+            "deadline": "2026-01-06",
+            "status": "missed"
+        }
+    ],
+    "user_behavior": {
+        "tasks_completed": 2,
+        "tasks_missed": 2,
+        "preferred_input": "text",
+        "reminder_style": "normal"
+    },
+    "activity_log": [
+        {
+            "action": "event_added",
+            "date": "2026-01-06"
+        },
+        {
+            "action": "task_completed",
+            "date": "2026-01-06"
+        },
+        {
+            "action": "task_completed",
+            "date": "2026-01-06"
+        },
+        {
+            "action": "task_missed",
+            "date": "2026-01-06"
+        },
+        {
+            "action": "task_missed",
+            "date": "2026-01-06"
+        }
+    ]
+}

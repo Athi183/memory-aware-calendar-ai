@@ -4,7 +4,6 @@ from datetime import date, timedelta, datetime
 import os
 import math
 import calendar
-import dateparser
 from groq import Groq
 from dotenv import load_dotenv
 import streamlit.components.v1 as components

@@ -53,6 +53,12 @@
             "description": "**Task: Honors Program Planning (Due: January 2, 2026)**\n\n**Description:** It's essential that we prioritize the planning for the Honors Program to ensure its success. Please allocate time to review and finalize the program's details, including the schedule, guest speakers, and activities. This will enable us to deliver a high-quality experience for our participants. Let's work together to make this event a memorable one.\n\n**Key Tasks:**\n\n- Review and finalize the program schedule\n- Confirm guest speakers and their presentations\n- Coordinate activities and events\n- Ensure all logistical arrangements are in place\n\n**Deadline:** January 2, 2026\n\n**Support:** If you need any assistance or have questions, please don't hesitate to reach out. We're here to support you in making this event a success.",
             "deadline": "2026-01-02",
             "status": "pending"
+        },
+        {
+            "title": "Untitled Task",
+            "description": "**Exam Preparation Timeline**\n\n**Description:** \n\nYou have an upcoming exam scheduled for January 4th, 2026. To ensure you're well-prepared and confident, we need to create a study plan. Let's break down the tasks and milestones to achieve your goal.\n\nHere's a suggested plan:\n\n- Review your study materials and make a list of topics to focus on (by December 22nd, 2025)\n- Allocate dedicated study time each day to cover the essential topics (December 23rd, 2025 - January 3rd, 2026)\n- Practice past exams or quizzes to assess your understanding and identify areas for improvement (December 23rd, 2025 - January 3rd, 2026)\n- Get a good night's sleep and arrive early on exam day to stay focused and composed (January 4th, 2026)\n\nBy following this plan, you'll be well-prepared for your exam and can achieve the best possible",
+            "deadline": "2026-01-04",
+            "status": "pending"
         }
     ],
     "user_behavior": {

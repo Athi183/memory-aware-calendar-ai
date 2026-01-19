@@ -1,57 +1,18 @@
 import streamlit as st
 import json
-from datetime import date,timedelta
+from datetime import date, timedelta, datetime
 import os
+import math
+import calendar
 import dateparser
 from groq import Groq
 from dotenv import load_dotenv
-load_dotenv()
 import streamlit.components.v1 as components
-import calendar
-
-
 
 # ------------------ CONFIG ------------------
+load_dotenv()
 DATA_FILE = "data/user_memory.json"
 client = Groq(api_key=os.getenv("GROQ_API_KEY"))
-
-# ------------------ AI HELPERS ------------------
-
-
-def generate_ai_text(event_text, behavior, pattern):
-    response = client.chat.completions.create(
-        model="llama-3.1-8b-instant",
-        messages=[
-            {"role": "system", "content": "You are a helpful calendar assistant."},
-            {
-                "role": "user",
-                "content": f"""
-User behavior pattern: {pattern['pattern']}
-AI instruction: {pattern['instruction']}
-
-Rewrite the following task in a {pattern['tone']} tone.
-Make it realistic, motivating, and behavior-aware.
-
-
-Task:
-"{event_text}"
-
-Format:
-Title: ...
-Description: ...
-"""
-            }
-        ],
-        temperature=0.3,
-        max_tokens=200
-    )
-    content = response.choices[0].message.content.strip()
-    title = "Untitled Task"
-    description = content
-    if "Title:" in content and "Description:" in content:
-        title = content.split("Title:")[1].split("Description:")[0].strip()
-        description = content.split("Description:")[1].strip()
-    return title, description
 
 # ------------------ DATA HELPERS ------------------
 
@@ -61,9 +22,7 @@ def load_data():
             "events": [],
             "user_behavior": {
                 "tasks_completed": 0,
-                "tasks_missed": 0,
-                "preferred_input": "text",
-                "reminder_style": "normal"
+                "tasks_missed": 0
             },
             "activity_log": []
         }
@@ -75,66 +34,79 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# ------------------ BEHAVIOR ANALYSIS ------------------
+
 def analyze_behavior(data):
-    completed = data["user_behavior"]["tasks_completed"]
-    missed = data["user_behavior"]["tasks_missed"]
-    if missed > completed:
-        return {
-            "tone": "strict",
-            "message": "⚠️ You often miss deadlines. Let's start earlier next time.",
-            "reminder_shift": "earlier"
-        }
-    elif completed >= missed and completed > 0:
-        return {
-            "tone": "positive",
-            "message": "🎉 You're doing great! Keep up the momentum.",
-            "reminder_shift": "normal"
-        }
-    else:
-        return {
-            "tone": "neutral",
-            "message": "📌 Let's build consistency together.",
-            "reminder_shift": "normal"
-        }
-def analyze_recent_pattern(data, window=5):
-    logs = data.get("activity_log", [])[-window:]
+    c = data["user_behavior"]["tasks_completed"]
+    m = data["user_behavior"]["tasks_missed"]
 
-    completed = sum(1 for l in logs if l["action"] == "task_completed")
-    missed = sum(1 for l in logs if l["action"] == "task_missed")
+    if m > c:
+        return "⚠️ You often miss deadlines. Let’s plan smaller steps.", "firm but supportive"
+    if c > 0:
+        return "🎉 You’re consistent. Keep going!", "positive"
+    return "📌 Let’s build consistency together.", "neutral"
 
-    if missed >= 3:
-        return {
-            "pattern": "frequent_miss",
-            "tone": "firm but supportive",
-            "instruction": "Reduce pressure, break task into smaller steps."
-        }
+# ------------------ AI HELPER ------------------
 
-    if completed == 0 and missed == 0:
-        return {
-        "pattern": "new_user",
-        "tone": "friendly and exploratory",
-        "instruction": "Help the user plan gently without assumptions."
-    }
+def generate_ai_text(task, tone):
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
+        messages=[
+            {"role": "system", "content": "You are a helpful planning assistant."},
+            {"role": "user", "content": f"Rewrite this task in a {tone} tone:\n{task}\nFormat:\nTitle:\nDescription:"}
+        ],
+        temperature=0.3,
+        max_tokens=200
+    )
 
+    content = response.choices[0].message.content
+    title = "Untitled Task"
+    desc = content
 
-    return {
-        "pattern": "unstable",
-        "tone": "calm and practical",
-        "instruction": "Focus on clarity and realistic planning."
-    }
+    if "Title:" in content:
+        title = content.split("Title:")[1].split("Description:")[0].strip()
+        desc = content.split("Description:")[1].strip()
+
+    return title, desc
+
+# ------------------ DATE EXTRACTION ------------------
+
+def ai_extract_date(text):
+    """
+    Use Groq AI to extract a date from text in YYYY-MM-DD format.
+    Returns a date object or None if extraction fails.
+    """
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[
+                {"role": "system", "content": "You are a smart assistant that extracts dates from text."},
+                {"role": "user", "content": f"Extract the date from this text in YYYY-MM-DD format: '{text}'. If no date is mentioned, reply 'None'."}
+            ],
+            temperature=0
+        )
+        date_str = response.choices[0].message.content.strip()
+
+        if date_str.lower() == "none":
+            return None
+        
+        # Convert AI string to date object
+        from datetime import datetime
+        parsed_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        return parsed_date
+    except Exception as e:
+        print("AI date extraction error:", e)
+        return None
 
 
 # ------------------ STREAMLIT UI ------------------
 
 st.set_page_config(page_title="Memory-Aware Calendar AI", layout="centered")
 st.title("📅 Memory-Aware Calendar AI")
-st.caption("A behavioral planning companion")
 
-# Load data and analyze behavior
 data = load_data()
-behavior_feedback = analyze_behavior(data)
 
-pattern_feedback = analyze_recent_pattern(data)
+# ------------------ BEHAVIOR BUTTON ------------------
 
 if "show_behavior" not in st.session_state:
     st.session_state.show_behavior = False
@@ -143,307 +115,229 @@ if st.button("🔮 Predict my behaviour"):
     st.session_state.show_behavior = not st.session_state.show_behavior
 
 if st.session_state.show_behavior:
-    behavior_feedback = analyze_behavior(data)
-    pattern_feedback = analyze_recent_pattern(data)
+    msg, tone = analyze_behavior(data)
+    st.info(msg)
+    st.success(f"🤖 AI tone: **{tone}**")
 
-    st.info(f"🧠 Memory Insight: {behavior_feedback['message']}")
-    st.success(
-        f"🤖 AI will respond in a **{pattern_feedback['tone']}** tone"
-    )
+# ------------------ TRACK SELECTED DATE ------------------
+import streamlit.components.v1 as components
 
+# ------------------ CIRCULAR CALENDAR (STATIC & REACTIVE) ------------------
 
+# Ensure session_state keys exist
+if "selected_date" not in st.session_state:
+    st.session_state.selected_date = None
+# ------------------ Month Navigation (MUST BE FIRST) ------------------
+if "current_month" not in st.session_state:
+    today = date.today()
+    st.session_state.current_month = today.month
+    st.session_state.current_year = today.year
 
-# Calendar
-selected_date = st.date_input("Choose a date", date.today(), label_visibility="collapsed")
-selected_date_str = str(selected_date)
-def extract_date(text):
-    parsed = dateparser.parse(text, settings={"PREFER_DATES_FROM": "future"})
-    if parsed:
-        if parsed.year == date.today().year:
-            parsed = parsed.replace(year=2026)
-        return parsed.date().isoformat()
-    return None
+left, center, right = st.columns([1, 2, 1])
 
-today = selected_date
-day = today.day
-days_in_month = calendar.monthrange(today.year, today.month)[1]
+with left:
+    if st.button("⬅", key="prev_month"):
+        if st.session_state.current_month == 1:
+            st.session_state.current_month = 12
+            st.session_state.current_year -= 1
+        else:
+            st.session_state.current_month -= 1
 
-has_event_today = any(
-    e["deadline"] == str(today) for e in data["events"]
-)
-
-
-import math
-year = selected_date.year
-month = selected_date.month
-day = selected_date.day
+with right:
+    if st.button("➡", key="next_month"):
+        if st.session_state.current_month == 12:
+            st.session_state.current_month = 1
+            st.session_state.current_year += 1
+        else:
+            st.session_state.current_month += 1
+year = st.session_state.current_year
+month = st.session_state.current_month
 days_in_month = calendar.monthrange(year, month)[1]
 
-date_marks = ""
+st.subheader(f"{calendar.month_name[month]} {year}")
 
+cols = st.columns(7)
+for day in range(1, days_in_month + 1):
+    col = cols[(day - 1) % 7]
+    date_str = f"{year}-{month:02d}-{day:02d}"
+
+    has_event = any(e["deadline"] == date_str for e in data["events"])
+
+    label = f"🟢 {day}" if has_event else str(day)
+
+    if col.button(label, key=f"day_btn_{date_str}"):
+        st.session_state.selected_date = date_str
+
+
+
+# ------------------ Generate SVG for circular calendar ------------------
+date_marks = ""
 for i in range(1, days_in_month + 1):
     angle = (i / days_in_month) * 2 * math.pi - math.pi / 2
     x = 150 + 110 * math.cos(angle)
     y = 150 + 110 * math.sin(angle)
 
     date_str = f"{year}-{month:02d}-{i:02d}"
-
     has_event = any(e["deadline"] == date_str for e in data["events"])
-    is_today = i == day
 
-    color = "#4caf50" if has_event else "#ff5722" if is_today else "#555"
-
-    date_marks += f"""
-    <g onclick="selectDate('{date_str}')" style="cursor:pointer">
-        <circle cx="{x}" cy="{y}" r="14" fill="{color}" opacity="0.9"/>
-        <text x="{x}" y="{y+5}" text-anchor="middle"
-              font-size="12" fill="white" font-weight="bold">{i}</text>
-    </g>
-    """
-if "clicked_date" not in st.session_state:
-    st.session_state.clicked_date = str(selected_date)
-
-hidden_date = st.text_input(
-    "hidden_date",
-    value=st.session_state.clicked_date,
-    label_visibility="collapsed",
-    key="hidden_date_input"
-)
-
-if hidden_date:
-    selected_date = date.fromisoformat(hidden_date)
-    selected_date_str = str(selected_date)
-prev_month_date = selected_date.replace(day=1) - timedelta(days=1)
-next_month_date = (
-    selected_date.replace(day=days_in_month) + timedelta(days=1)
-)
-
-components.html(
-f"""
-<script>
-function selectDate(dateStr) {{
-    const input = window.parent.document.querySelector(
-        'input[data-testid="stTextInput"]'
-    );
-    input.value = dateStr;
-    input.dispatchEvent(new Event("input", {{ bubbles: true }}));
-}}
-</script>
-
-<svg width="300" height="300" viewBox="0 0 300 300">
-
-    <!-- Outer circle -->
-    <circle cx="150" cy="150" r="130"
-        stroke="#ddd" stroke-width="4" fill="none"/>
-
-    <!-- Dates -->
-    {date_marks}
-
-    <!-- Center Month -->
-    <text x="150" y="145" text-anchor="middle"
-        font-size="18" font-weight="bold">
-        {selected_date.strftime('%B')}
-    </text>
-
-    <!-- Center Year -->
-    <text x="150" y="170" text-anchor="middle"
-        font-size="14" fill="#666">
-        {year}
-    </text>
-    
-    <!-- Month Navigation -->
-    
-<text x="110" y="170" font-size="18" cursor="pointer"
-    onclick="selectDate('{prev_month_date.isoformat()}')">
-    ⬅
-</text>
-
-<text x="190" y="170" font-size="18" cursor="pointer"
-    onclick="selectDate('{next_month_date.isoformat()}')">
-    ➡
-</text>
-
-
-</svg>
-""",
-height=320
-)
-
-events_today = [e for e in data["events"] if e["deadline"] == selected_date_str]
-if events_today:
-    st.success(f"📌 {len(events_today)} event(s) on this day")
-else:
-    st.info("No events scheduled for this day")
-
-# Initialize session state for unified input
-if "plan_input" not in st.session_state:
-    st.session_state.plan_input = ""
-
-st.subheader("✍️ Plan something")
-st.session_state.plan_input = st.text_area(
-    label="Plan input",
-    value=st.session_state.plan_input,
-    height=120,
-    placeholder="Finish AI report tomorrow, revise DBMS on Friday...",
-    label_visibility="collapsed"
-)
-
-
-# Voice + text input component
-components.html("""
-<script>
-const interval = setInterval(() => {
-    const textareas = window.parent.document.querySelectorAll("textarea");
-    if (!textareas.length) return;
-
-    const textarea = textareas[textareas.length - 1];
-    clearInterval(interval);
-
-    textarea.parentElement.style.position = "relative";
-
-    const micBtn = document.createElement("button");
-    micBtn.innerHTML = "🎤";
-    micBtn.style.position = "absolute";
-    micBtn.style.right = "12px";
-    micBtn.style.top = "12px";
-    micBtn.style.fontSize = "20px";
-    micBtn.style.border = "none";
-    micBtn.style.background = "transparent";
-    micBtn.style.cursor = "pointer";
-    micBtn.title = "Speak";
-
-    textarea.parentElement.appendChild(micBtn);
-
-    let recognition;
-    let listening = false;
-
-    if ('webkitSpeechRecognition' in window) {
-        recognition = new webkitSpeechRecognition();
-        recognition.continuous = true;
-        recognition.interimResults = true;
-        recognition.lang = 'en-US';
-
-        recognition.onstart = () => {
-            micBtn.innerHTML = "⏹️";
-        };
-
-        recognition.onend = () => {
-            micBtn.innerHTML = "🎤";
-            listening = false;
-            textarea.dispatchEvent(new Event("input", { bubbles: true }));
-        };
-
-        let finalTranscript = "";
-
-        recognition.onresult = (event) => {
-            let interimTranscript = "";
-
-            for (let i = event.resultIndex; i < event.results.length; i++) {
-                const transcript = event.results[i][0].transcript;
-
-                if (event.results[i].isFinal) {
-                    finalTranscript += transcript + " ";
-                } else {
-                    interimTranscript += transcript;
-                }
-            }
-
-            textarea.value = finalTranscript + interimTranscript;
-
-        };
-
-
-        micBtn.onclick = () => {
-            if (!listening) {
-                recognition.start();
-                listening = true;
-            } else {
-                recognition.stop();
-            }
-        };
-    } else {
-        micBtn.innerHTML = "❌";
-        micBtn.title = "Speech not supported";
-    }
-}, 300);
-</script>
-""", height=0)
-
-
-
-# ------------------ SAVE PLAN ------------------
-if st.button("Save Plan"):
-    user_input = st.session_state.plan_input.strip()
-    
-    if not user_input:
-        st.warning("Please write something to plan.")
+    if st.session_state.selected_date == date_str:
+        color = "#ff9800"  # selected date
+    elif has_event:
+        color = "#4caf50"  # date has event
     else:
-        with st.spinner("⚡ Planning instantly with AI..."):
-            try:
-                pattern_feedback = analyze_recent_pattern(data)
-                title, description = generate_ai_text(
-                    user_input,
-                    behavior_feedback,
-                    pattern_feedback
-                )
+        color = "#555"      # normal date
 
-            except Exception as e:
-                st.error(f"Error: {e}")
-                st.stop()
+    # Each circle will send the date back to Streamlit via component value
+    date_marks += f"""
+<g style="cursor:pointer"
+   onclick="
+     const inputs = window.parent.document.querySelectorAll('input');
+     const target = Array.from(inputs).find(i => i.id.includes('calendar_click_input'));
+     if (target) {{
+       target.value = '{date_str}';
+       target.dispatchEvent(new Event('input', {{ bubbles: true }}));
+       target.dispatchEvent(new Event('change', {{ bubbles: true }}));
+     }}
+   ">
+  <circle cx="{x}" cy="{y}" r="14" fill="{color}" />
+  <text x="{x}" y="{y+5}" text-anchor="middle"
+        font-size="12" fill="white" pointer-events="none">
+        {i}
+  </text>
+</g>
+"""
 
-        deadline = extract_date(user_input) or selected_date_str
-        new_event = {
-            "title": title,
-            "description": description,
-            "deadline": deadline,
-            "status": "pending"
-        }
-        data["events"].append(new_event)
-        data["activity_log"].append({"action": "event_added", "date": str(date.today())})
-        save_data(data)
 
-        st.success(f"🗓️ Event scheduled on {deadline}")
-        st.info(f"🤖 AI Plan:\n\n{description}")
 
-        # Clear input after save
-        st.session_state.plan_input = ""
+# Render SVG
+components.html(f"""
+    <svg width="300" height="300" viewBox="0 0 300 300">
+        <circle cx="150" cy="150" r="130" stroke="#ddd" stroke-width="4" fill="none"/>
+        {date_marks}
+        <text x="150" y="145" text-anchor="middle" font-size="18" font-weight="bold">{calendar.month_name[month]}</text>
+        <text x="150" y="170" text-anchor="middle" font-size="14" fill="#666">{year}</text>
+    </svg>
+
+""", height=320, scrolling=False)
+
+    
+
+# ------------------ AUDIO TRANSCRIPTION HELPER ------------------
+def transcribe_audio_groq(audio_file):
+    with open("temp_audio.wav", "wb") as f:
+        f.write(audio_file.getbuffer())
+    transcription = client.audio.transcriptions.create(
+        file=open("temp_audio.wav", "rb"),
+        model="whisper-large-v3"
+    )
+    return transcription.text
+
+# ------------------ PLAN INPUT (Using st.form) ------------------
+st.subheader("✍️ Plan something")
+
+if "transcribed_text" not in st.session_state:
+    st.session_state.transcribed_text = ""
+
+with st.form("plan_form", clear_on_submit=True):
+    plan_text = st.text_area(
+        "Type your plan",
+        placeholder="Finish AI report by Jan 31..."
+    )
+    audio_file = st.audio_input("🎙️ Or record your plan")
+    submit = st.form_submit_button("💾 Save Plan")
+
+    if submit:
+        final_text = ""
+        if audio_file is not None:
+            with st.spinner("🧠 Transcribing audio..."):
+                st.session_state.transcribed_text = transcribe_audio_groq(audio_file).strip()
+            final_text = st.session_state.transcribed_text
+        elif plan_text.strip():
+            final_text = plan_text.strip()
+
+        # Inside st.form submit logic
+        if not final_text:
+            st.warning("Please write or speak something.")
+        else:
+            msg, tone = analyze_behavior(data)
+            title, desc = generate_ai_text(final_text, tone)
+
+            # Use AI to extract date first
+            parsed_date = ai_extract_date(final_text)
+
+            if parsed_date is None:
+                st.warning("⚠️ Could not detect a valid date from your input. Please include a proper date like 'Jan 31' or 'February 5'.")
+            else:
+                data["events"].append({
+                    "title": title,
+                    "description": desc,
+                    "deadline": parsed_date.isoformat(),
+                    "status": "pending"
+                })
+                save_data(data)
+                st.success(f"🗓️ Saved for {parsed_date}")
+                st.info(desc)
+                st.session_state.transcribed_text = ""
+
+
+
 
 # ------------------ DISPLAY EVENTS ------------------
+
 st.divider()
-st.subheader("📌 Your Events")
+st.subheader("📌 Events for Selected Date")
 
-filtered_events = [(idx, e) for idx, e in enumerate(data["events"]) if e["deadline"] == selected_date_str]
+if st.session_state.selected_date:
+    date_events = [
+        e for e in data["events"]
+        if e["deadline"] == st.session_state.selected_date
+    ]
+    if not date_events:
+        st.info(f"No events on {st.session_state.selected_date}.")
+    else:
+        for idx, event in enumerate(date_events):
+            with st.container():
+                st.markdown(f"### {event['title']}")
+                st.write(event["description"])
+                st.caption(f"📅 Deadline: {event['deadline']}")
 
-if filtered_events:
-    for idx, event in filtered_events:
-        st.markdown(f"### {event['title']}")
-        st.write(event["description"])
-        st.write(f"📅 Deadline: {event['deadline']}")
-        col1, col2, col3 = st.columns(3)
-        if col1.button("✅ Done", key=f"done_{idx}"):
-            event["status"] = "completed"
-            data["user_behavior"]["tasks_completed"] += 1
-            data["activity_log"].append({
-                "action": "task_completed",
-                "date": str(date.today())
-            })
+                status_icon = (
+                    "🟢" if event["status"] == "completed"
+                    else "🔴" if event["status"] == "missed"
+                    else "⚪"
+                )
+                st.write(f"Status: {status_icon} {event['status'].capitalize()}")
 
-            save_data(data)
-        if col2.button("❌ Missed", key=f"missed_{idx}"):
-            event["status"] = "missed"
-            data["user_behavior"]["tasks_missed"] += 1
-            data["activity_log"].append({
-                "action": "task_missed",
-                "date": str(date.today())
-            })
+                col1, col2, col3 = st.columns(3)
 
-            save_data(data)
-        if col3.button("🗑️ Delete", key=f"delete_{idx}"):
-            del data["events"][idx]
-            data["activity_log"].append({"action": "event_deleted", "date": str(date.today())})
-            save_data(data)
-        status_icon = "🟢" if event["status"] == "completed" else "🔴" if event["status"] == "missed" else "⚪"
-        st.write(f"Status: {status_icon} {event['status'].capitalize()}")
-        st.markdown("---")
+                if col1.button("✅ Done", key=f"done_{idx}_{event['deadline']}"):
+                    event["status"] = "completed"
+                    data["user_behavior"]["tasks_completed"] += 1
+                    data["activity_log"].append({
+                        "action": "task_completed",
+                        "date": str(date.today())
+                    })
+                    save_data(data)
+                   
+
+                if col2.button("❌ Missed", key=f"missed_{idx}_{event['deadline']}"):
+                    event["status"] = "missed"
+                    data["user_behavior"]["tasks_missed"] += 1
+                    data["activity_log"].append({
+                        "action": "task_missed",
+                        "date": str(date.today())
+                    })
+                    save_data(data)
+                   
+
+                if col3.button("🗑️ Delete", key=f"delete_{idx}_{event['deadline']}"):
+                    data["activity_log"].append({
+                        "action": "event_deleted",
+                        "date": str(date.today())
+                    })
+                    data["events"].remove(event)
+                    save_data(data)
+                   
+                st.markdown("---")
 else:
-    st.info("No events yet. Add one above.")
+    st.info("Select a date on the calendar to see its events.")
